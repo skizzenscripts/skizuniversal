@@ -1,20 +1,47 @@
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+
+-- HELPERS
+local function getHRP()
+    return (player.Character or player.CharacterAdded:Wait()):WaitForChild("HumanoidRootPart")
+end
 
 -- CONFIG
 local MAX_POSES = 5
 local poseCount = 0
 local positions = {}
 local flySpeed = 50  -- Default flight speed
+local beams = {}
 
--- Helpers
-local function getHRP()
-    return (player.Character or player.CharacterAdded:Wait()):WaitForChild("HumanoidRootPart")
+-- CREATE VISUAL PLATFORM UNDER FEET (about 3 studs below HRP)
+local function createVisualPlatform()
+    local hrp = getHRP()
+
+    local platform = Instance.new("Part")
+    platform.Size = Vector3.new(8, 1, 8)  -- hover platform size
+    platform.Anchored = true
+    platform.CanCollide = false  -- visual only
+    platform.Material = Enum.Material.Neon
+    platform.Color = Color3.fromRGB(135, 206, 250)
+    platform.Name = "FlyPlatform"
+    platform.Transparency = 0.3
+    platform.Parent = workspace
+
+    local angle = 0
+    RunService.RenderStepped:Connect(function()
+        if hrp.Parent and platform.Parent then
+            angle = angle + math.rad(3)
+            -- Position platform about 3 studs below HumanoidRootPart, so under feet
+            local targetPos = hrp.Position - Vector3.new(0, 3, 0)
+            platform.CFrame = CFrame.new(targetPos) * CFrame.Angles(0, angle, 0)
+        end
+    end)
 end
+
+createVisualPlatform()
 
 -- GUI
 local gui = Instance.new("ScreenGui", player.PlayerGui)
@@ -24,7 +51,7 @@ gui.ResetOnSpawn = false
 local logo = Instance.new("TextButton")
 logo.Size = UDim2.new(0,75,0,75)
 logo.Position = UDim2.new(0,18,0,18)
-logo.Text = "Fly"
+logo.Text = "UNI"
 logo.Font = Enum.Font.GothamBold
 logo.TextSize = 30
 logo.TextColor3 = Color3.fromRGB(135, 206, 250)
@@ -59,7 +86,7 @@ uiGlow.Color = Color3.fromRGB(135, 206, 250)
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1,0,0,25)
 titleLabel.Position = UDim2.new(0,0,0,0)
-titleLabel.Text = "Skizzen's Fly Mode"
+titleLabel.Text = "Skizzen's Universal"
 titleLabel.Font = Enum.Font.GothamBold
 titleLabel.TextSize = 14
 titleLabel.TextColor3 = Color3.fromRGB(135, 206, 250)
@@ -105,7 +132,7 @@ speedSlider.MouseButton1Click:Connect(function()
     speedLabel.Text = "Speed: "..flySpeed
 end)
 
--- Create Position Box Function with Orb
+-- CREATE POSITION BOX FUNCTION WITH ORB AND BEAM
 local function createPositionBox(i)
     local box = Instance.new("Frame", tpFrame)
     box.Size = UDim2.new(1,0,0,35)
@@ -115,26 +142,22 @@ local function createPositionBox(i)
     local label = Instance.new("TextLabel", box)
     label.Size = UDim2.new(0.5,0,1,0)
     label.Position = UDim2.new(0.05,0,0,0)
-    label.Text = "Pos "..i  -- Removed coordinates
+    label.Text = "Position "..i
     label.Font = Enum.Font.GothamBold
     label.TextSize = 10
     label.TextColor3 = Color3.fromRGB(135,206,250)
     label.BackgroundTransparency = 1
     label.TextXAlignment = Enum.TextXAlignment.Left
 
-    -- Create Orb to mark saved positions
     local orb = Instance.new("Part")
     orb.Size = Vector3.new(2, 2, 2)
     orb.Shape = Enum.PartType.Ball
-    orb.Position = Vector3.new(0, 10, 0)  -- Placeholder position
     orb.Anchored = true
     orb.CanCollide = false
     orb.Material = Enum.Material.Neon
-    orb.Color = Color3.fromRGB(135, 206, 250)  -- Sky blue color
-    orb.Parent = game.Workspace
-    Debris:AddItem(orb, 10)  -- Remove the orb after 10 seconds
+    orb.Color = Color3.fromRGB(135, 206, 250)
+    orb.Parent = workspace
 
-    -- Save Position and Update Label
     local function makeBtn(txt, x)
         local b = Instance.new("TextButton", box)
         b.Size = UDim2.new(0,40,0,20)
@@ -153,50 +176,61 @@ local function createPositionBox(i)
 
     save.MouseButton1Click:Connect(function()
         positions[i] = getHRP().CFrame
-        local pos = positions[i].Position
-        label.Text = string.format("Pos %d", i)  -- Removed coordinates display
-        orb.Position = pos  -- Move orb to saved position
+        orb.Position = positions[i].Position
+
+        -- CREATE BEAM FROM PLAYER TO THIS ORB
+        if beams[i] then beams[i]:Destroy() end
+        local attach0 = Instance.new("Attachment", getHRP())
+        local attach1 = Instance.new("Attachment", orb)
+        local beam = Instance.new("Beam")
+        beam.Attachment0 = attach0
+        beam.Attachment1 = attach1
+        beam.Width0 = 0.1
+        beam.Width1 = 0.1
+        beam.Color = ColorSequence.new(Color3.fromRGB(135,206,250))
+        beam.Parent = workspace
+        beams[i] = beam
     end)
 
-    -- Fly to Position with Spinning and Path Line
     fly.MouseButton1Click:Connect(function()
-        if positions[i] then
-            local hrp = getHRP()
-            local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
-            if humanoid then
-                humanoid.PlatformStand = true
-                local target = positions[i].Position
+        local hrp = getHRP()
+        local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
+        if not humanoid then return end
 
-                -- Create the path line (Beam)
-                local pathLine = Instance.new("Beam")
-                local attachment0 = Instance.new("Attachment", hrp)
-                local attachment1 = Instance.new("Attachment", game.Workspace)
-                pathLine.Attachment0 = attachment0
-                pathLine.Attachment1 = attachment1
-                pathLine.Parent = hrp
-                pathLine.Color = ColorSequence.new(Color3.fromRGB(135, 206, 250), Color3.fromRGB(255, 255, 255))
-                pathLine.Width0 = 0.1
-                pathLine.Width1 = 0.1
-                pathLine.Texture = "rbxassetid://123456789"  -- Customize the texture here
+        humanoid.PlatformStand = true
 
-                -- Flight Movement
-                spawn(function()
-                    while (hrp.Position - target).Magnitude > 1 do
-                        local dir = (target - hrp.Position).Unit
-                        hrp.Velocity = dir * flySpeed
-                        hrp.RotVelocity = Vector3.new(0, 10, 0)  -- Spin effect
+        local startPos = hrp.Position
+        local targetPos = positions[i] and positions[i].Position or startPos
+        targetPos = Vector3.new(targetPos.X, startPos.Y, targetPos.Z)
 
-                        -- Update Path Line
-                        attachment1.WorldPosition = target  -- Update path line's end to target position
+        -- TELEPORT 120 UP first
+        hrp.CFrame = hrp.CFrame + Vector3.new(0,120,0)
 
-                        wait()
-                    end
-                    hrp.Velocity = Vector3.new(0,0,0)
-                    humanoid.PlatformStand = false
-                    pathLine:Destroy()  -- Destroy path line after reaching target
-                end)
+        -- Trail effect
+        local trailAttachment0 = Instance.new("Attachment", hrp)
+        local trailAttachment1 = Instance.new("Attachment", hrp)
+        local trail = Instance.new("Trail")
+        trail.Attachment0 = trailAttachment0
+        trail.Attachment1 = trailAttachment1
+        trail.Color = ColorSequence.new(Color3.fromRGB(135,206,250), Color3.fromRGB(255,255,255))
+        trail.Lifetime = 0.5
+        trail.Parent = hrp
+        Debris:AddItem(trail, 3)
+
+        -- Fly toward target position
+        task.spawn(function()
+            while (Vector3.new(hrp.Position.X, startPos.Y, hrp.Position.Z) - targetPos).Magnitude > 1 do
+                local dir = (targetPos - Vector3.new(hrp.Position.X, startPos.Y, hrp.Position.Z)).Unit
+                hrp.Velocity = Vector3.new(dir.X,0,dir.Z) * flySpeed
+                hrp.RotVelocity = Vector3.new(0,15,0)
+                task.wait()
             end
-        end
+
+            -- TELEPORT DOWN to original Y after arriving
+            hrp.CFrame = CFrame.new(Vector3.new(hrp.Position.X, startPos.Y, hrp.Position.Z))
+            hrp.Velocity = Vector3.new(0,0,0)
+            humanoid.PlatformStand = false
+        end)
     end)
 end
 
@@ -221,13 +255,12 @@ addBtn.MouseButton1Click:Connect(function()
     if poseCount >= MAX_POSES then addBtn.Visible = false end
 end)
 
--- Open GUI
+-- GUI Open/Close
 logo.MouseButton1Click:Connect(function()
     logo.Visible = false
     main.Visible = true
 end)
 
--- Minimize
 local minBtn = Instance.new("TextButton", main)
 minBtn.Size = UDim2.new(0,22,0,22)
 minBtn.Position = UDim2.new(1,-55,0,8)
@@ -242,7 +275,6 @@ minBtn.MouseButton1Click:Connect(function()
     logo.Visible = true
 end)
 
--- Close
 local closeBtn = Instance.new("TextButton", main)
 closeBtn.Size = UDim2.new(0,22,0,22)
 closeBtn.Position = UDim2.new(1,-28,0,8)
